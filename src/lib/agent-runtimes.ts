@@ -189,7 +189,7 @@ export function parseScriptReviewVerdict(text: string): ScriptReviewResult | nul
   return null
 }
 
-export type RuntimeId = 'openclaw' | 'hermes' | 'claude' | 'codex' | 'opencode'
+export type RuntimeId = 'openclaw' | 'hermes' | 'claude' | 'codex' | 'opencode' | 'agy'
 export type DeploymentMode = 'local' | 'docker'
 
 export interface RuntimeStatus {
@@ -252,6 +252,12 @@ const RUNTIME_META: Record<RuntimeId, RuntimeMeta> = {
     description: 'AI coding agent for the terminal with local SQLite-backed session storage.',
     authRequired: false,
     authHint: '',
+  },
+  agy: {
+    name: 'Antigravity (agy)',
+    description: 'Google Antigravity CLI agent (Gemini) with plan-mode dispatch.',
+    authRequired: true,
+    authHint: 'Run "agy" once interactively to complete Google OAuth sign-in.',
   },
 }
 
@@ -351,6 +357,17 @@ export const RUNTIME_CAPABILITIES: Record<RuntimeId, RuntimeCapabilities> = {
     tool_policy: false,
     budget_cap: false,
     structured_output: false,
+    skills_inventory: false,
+    receipts: { ...NO_RECEIPTS },
+  },
+  agy: {
+    dispatch: false, // detection-only for now; no callAgyViaCli dispatch path yet
+    session_resume: false,
+    pty: false,
+    workspace_cwd: false,
+    tool_policy: false,
+    budget_cap: false,
+    structured_output: false, // `agy -p` prints prose; --output-format stream-json not wired
     skills_inventory: false,
     receipts: { ...NO_RECEIPTS },
   },
@@ -611,12 +628,35 @@ function detectOpenCode(): RuntimeStatus {
   return { id: 'opencode', ...meta, installed, version, running, authenticated: installed }
 }
 
+function detectAgy(): RuntimeStatus {
+  const meta = RUNTIME_META.agy
+  const { installed, version } = detectBinary(['agy'])
+
+  // agy authenticates via Google OAuth on first interactive run; the CLI
+  // credentials live under ~/.gemini (antigravity-cli state).
+  let authenticated = false
+  if (installed) {
+    try {
+      const homedir = require('node:os').homedir()
+      const path = require('node:path')
+      authenticated =
+        existsSync(path.join(homedir, '.gemini', 'antigravity-cli', 'settings.json')) ||
+        existsSync(path.join(homedir, '.gemini', 'oauth_creds.json'))
+    } catch {
+      // ignore
+    }
+  }
+
+  return { id: 'agy', ...meta, installed, version, running: false, authenticated }
+}
+
 const DETECTORS: Record<RuntimeId, () => RuntimeStatus> = {
   openclaw: detectOpenClaw,
   hermes: detectHermes,
   claude: detectClaude,
   codex: detectCodex,
   opencode: detectOpenCode,
+  agy: detectAgy,
 }
 
 /**
@@ -690,6 +730,7 @@ export function startInstall(runtime: RuntimeId, mode: DeploymentMode): InstallJ
     claude: installClaudeLocal,
     codex: installCodexLocal,
     opencode: installOpenCodeLocal,
+    agy: installAgyLocal,
   }
   const installFn = INSTALL_FNS[runtime] || installOpenClawLocal
   installFn(job).catch((err) => {
@@ -908,6 +949,18 @@ async function installCodexLocal(job: InstallJob): Promise<void> {
   } else {
     job.status = 'failed'
     job.error = 'npm install failed — see output above'
+  }
+  job.finishedAt = Date.now()
+}
+
+async function installAgyLocal(job: InstallJob): Promise<void> {
+  job.output += '> Installing Antigravity CLI (agy)...\n'
+  if (await runInstallCmd('brew', ['install', 'antigravity-cli'], job)) {
+    job.status = 'success'
+    job.output += '\n> agy installed. Run "agy" once interactively to complete Google OAuth sign-in.\n'
+  } else {
+    job.status = 'failed'
+    job.error = 'brew install failed — see output above'
   }
   job.finishedAt = Date.now()
 }

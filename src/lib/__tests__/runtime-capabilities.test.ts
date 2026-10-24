@@ -21,7 +21,7 @@ import {
   type RuntimeId,
 } from '@/lib/agent-runtimes'
 
-const RUNTIME_IDS: RuntimeId[] = ['openclaw', 'hermes', 'claude', 'codex', 'opencode']
+const RUNTIME_IDS: RuntimeId[] = ['openclaw', 'hermes', 'claude', 'codex', 'opencode', 'agy']
 const CAPABILITY_KEYS: Array<keyof Omit<RuntimeCapabilities, 'receipts'>> = [
   'dispatch', 'session_resume', 'pty', 'workspace_cwd',
   'tool_policy', 'budget_cap', 'structured_output', 'skills_inventory',
